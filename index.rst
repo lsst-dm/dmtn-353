@@ -124,7 +124,7 @@ There are several cases where the format in which observatory data is stored in 
   For example, we may want to allow the user to retrieve data in HDF5 format even though the file in the object store is in FITS format.
 
 These cases require an intermediate service that sits between the user request and the object store and performs the necessary byte-range retrieval and format conversion.
-Ideally, this service should sit alongside the object store for files stored at the USDAC so that, for requests external to the Rubin Science Platform, the bytes do not have to be transferred to Google Cloud Platform, converted, and then transferred back out of GCP to the user's client.
+This service should sit alongside the object store for files stored at the USDAC so that, for requests external to the Rubin Science Platform, the bytes do not have to be transferred to Google Cloud Platform, converted, and then transferred back out of GCP to the user's client.
 Those additional trips would add latency and potentially incur additional egress costs.
 
 Since such a service would live alongside the object store instead of in the Science Platform, it, like the object store, would not have direct access to user authentication information.
@@ -249,4 +249,18 @@ Phase 4: Add format conversion
 Write the format conversion service that allows requests for files in different formats and extraction of raws from ZIP files.
 Deploy this alongside the object store at the USDAC, and at Google alongside GCS if required.
 
-The Butler service and the download service will have to be aware of this conversion service and return appropriate URLs to that service instead of to the underlying object store, based on the details of the user's request and the format of the underlying file.
+The Butler service, DataLink service, and the download service will have to be aware of this conversion service and return appropriate URLs to that service instead of to the underlying object store, based on the details of the user's request and the format of the underlying file.
+For most data products, format conversion parameters should be added to the URL at the DataLink service, which is responsible for providing multiple links to the same object with different formats in the ``{links}`` response.
+
+For example, suppose that the persistent URL returned by the Butler service for a given object is::
+
+    https://example.com/api/download/path/to/file.fits
+
+The download service will know how to convert ``path/to/file.fits`` to a path in the underlying object store.
+
+If conversion to HDF5 is supported for this file, as determined by configuration and the ``datasetType`` returned by the Butler query performed by the DataLink service, the DataLink service would add an additional URL to the ``{links}}`` result such as::
+
+    https://example.com/api/download/path/to/file.fits?convert=hdf5
+
+The download service will then know from that ``convert`` parameter that it should generate a signed URL to the format conversion service hosted next to the underlying data store rather than directly to the underlying data store.
+The generated URL to the format conversion service would have appropriate parameters requesting HDF5 conversion,
