@@ -112,6 +112,24 @@ This avoids egress charges for serving data from Google Cloud Platform to extern
 
 This is a special case of the general geolocation decision-making anticipated by phase three of the download service (see :ref:`download-service`).
 
+Format conversion
+-----------------
+
+There are several cases where the format in which observatory data is stored in an object store does not match what we want to return to the user:
+
+- Raw images for DP2 are currently stored in ZIP files.
+  The current service chain of Butler and DataLink does not correctly support retrieving individual raw images, but it would be possible to write a service that uses byte-range requests to the underlying object store to locate the relevant portion of the ZIP file and return a single raw image.
+
+- We want to support requests for files in different formats than their storage formats in some cases.
+  For example, we may want to allow the user to retrieve data in HDF5 format even though the file in the object store is in FITS format.
+
+These cases require an intermediate service that sits between the user request and the object store and performs the necessary byte-range retrieval and format conversion.
+Ideally, this service should sit alongside the object store for files stored at the USDAC so that, for requests external to the Rubin Science Platform, the bytes do not have to be transferred to Google Cloud Platform, converted, and then transferred back out of GCP to the user's client.
+Those additional trips would add latency and potentially incur additional egress costs.
+
+Since such a service would live alongside the object store instead of in the Science Platform, it, like the object store, would not have direct access to user authentication information.
+It would therefore have to support signed URLs or some similar mechanism to allow the relevant Science Platform service to attest that authorization checks have already been performed.
+
 Proposed implementation
 =======================
 
@@ -126,6 +144,11 @@ The download service is then responsible for turning that request into a signed 
 
 In this design, the Butler server does not talk directly to the download service and the download service does not talk directly to the object store.
 Rather, the communications shown by dotted lines in the diagram are done via redirects, causing the user's client to make a separate HTTP request to the other service with a new URL.
+
+In cases where some format conversion, such as changing file formats or extracting a portion of a ZIP file, has to be done before returning the file, the URL the download service signs would be a URL to a conversion service.
+That service would check the URL signature and then talk directly to the object store, performing any necessary conversion and returning the appropriate bytes.
+This diagram shows such a service living at the USDAC alongside its object store.
+Depending on where data is stored, it's possible a similar service would also be required alongside GCS.
 
 The separate download service that the user can reach directly opens the possibility for the user to request a file from the download service directly without using the Butler or DataLink.
 This addresses the use cases for arbitrary file download for files that may not make sense to import into the Butler.
@@ -143,6 +166,10 @@ This means the authorization information has to be conveyed from the Butler serv
 One solution to this problem would be for the Butler server to return signed URLs for the download service, indicating that the authorization check has already been performed.
 The download service would then verify the signature and issue a new signed URL for the underlying object store.
 This, however, reintroduces the problem of signed URL lifetime: The URLs returned by the Butler and thus by DataLink are no longer persistent and cannot be used after the signature expires, and that expiration time must be shorter than the time frame in which the system should respond to changes in authorization.
+
+The format conversion service poses a similar but simpler challenge.
+Since it lives alongside the object store, it is likely to be outside the authentication domain of the Science Platform and therefore not in a position to check authentication or perform authorization checks.
+It therefore should support authentication via signed URLs that can be issued by the download service (or Butler).
 
 Complication: Choosing a storage backend
 ----------------------------------------
@@ -215,3 +242,11 @@ Allow the choice of storage backend to be driven by the location of the client.
 Determine whether the client request came from inside or outside the Rubin Science Platform and route download requests for files dual-hosted in both Google Cloud Storage and at the USDAC accordingly.
 
 At this phase, resolve whether this information needs to be conveyed to Butler somehow so that it can embed the correct location for data products in the redirect to the download service, or whether the download service can be taught enough about the locations of files that it can apply this logic directly.
+
+Phase 4: Add format conversion
+------------------------------
+
+Write the format conversion service that allows requests for files in different formats and extraction of raws from ZIP files.
+Deploy this alongside the object store at the USDAC, and at Google alongside GCS if required.
+
+The Butler service and the download service will have to be aware of this conversion service and return appropriate URLs to that service instead of to the underlying object store, based on the details of the user's request and the format of the underlying file.

@@ -47,15 +47,22 @@ with Diagram(
         gcs = GCS("Object store")
 
     with Cluster("USDAC"):
+        converter = KubernetesEngine("Format converter")
         storage = Storage("Object store")
 
     user >> [notebook, portal] >> datalink >> butler
     user >> download
     user >> gcs
     user >> storage
+    user >> converter >> storage
     butler >> butlerdb
     download >> downloaddb
 
     butler >> Edge(style="dashed") >> download
     download >> Edge(style="dashed") >> gcs
+    download >> Edge(style="dashed") >> converter
     download >> Edge(style="dashed") >> storage
+
+    # Force better formatting.
+    notebook >> Edge(style="invis") >> converter
+    butlerdb >> Edge(style="invis") >> converter
