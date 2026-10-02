@@ -22,7 +22,7 @@ When this tech note was first written (August 2026), user download of data produ
 Official data products (primarily images) are available through the first route.
 All other files are available, awkwardly and without a consistent publishing policy, through the second route, if at all.
 
-Early Data Preview 2 was released with hybrid storage locations.
+Data Preview 2 was released with hybrid storage locations.
 All images are stored at the US Data Facility at SLAC, and some images were replicated to Google Cloud Storage.
 The Butler server knows which classes of images are available in which locations and chooses to hand back signed URLs for either Google Cloud Storage or SLAC's object store, depending on the type of requested image.
 
@@ -200,16 +200,35 @@ Implementation phases
 
 Implementing this design can happen in several phases.
 
-Phase 0: No code changes (optional)
------------------------------------
+Phase 0: Download service for Butler files
+------------------------------------------
 
-The most expedient way to make files available for download without requiring any development work is:
+The most expedient way to make a download service available is to leverage Butler's existing ability to create signed URLs.
+The initial download service can then provide access to any file with a Butler IVOID using the same calls as the DataLink service.
+Rather than return a {links} XML document, it will instead return a redirect to the signed URL returned by Butler.
+
+This can be extended to additional files if desired:
 
 #. Create a new Butler repository for files not associated with any data release and add it to the Repertoire configuration.
-#. Publish DataLink URLs to retrieve records for those files by Butler IVOID.
-#. Document how to extract the actual signed URL from the DataLink XML to download the underlying file.
+#. Upload any additional files to that Butler repository and document their IVOIDs.
 
-This allows us to serve any file that can be ingested into the Butler, but the user experience is not great (have to retrieve a DataLink XML document and parse it to find an expiring temporary URL).
+This allows us to serve any file that can be ingested into the Butler.
+
+As a UI improvement, this preliminary service could be configured with a static list of aliases for specific IVOIDs, allowing users to use a nicer URL such as::
+
+  https://data.lsst.cloud/api/download/short-name
+
+instead of something like::
+
+  https://data.lsst.cloud/api/download?ivoid=ivo%3A%2F%2Forg.rubinobs%2Flsst-dp1%3Frepo%3Ddp1%26id%3D9b663d6d-59b7-5ec9-836a-6c64809d37ef
+
+This phase would not give us control over the expiration time on the signed URLs, so users could pass around the signed URL returned by the redirect and download the same file multiple times, thus bypassing quotas up to the link expiration duration that Butler uses.
+Later phases would solve that problem by using short-lived signed URLs.
+
+This initial version of the download service would also have metrics and quota support.
+Initial quota support would be by total bytes per unit time of the files for which it returns links.
+We will have to decide on a time period across which the quota limit applies.
+One minute isn't useful when returning pre-signed URLs; an hour or a day probably captures the desired limit more cleanly.
 
 Phase 1: Download service for arbitrary files
 ---------------------------------------------
@@ -219,11 +238,6 @@ When deployed, this would allow simpler download of arbitrary artifacts stored a
 
 For this phase, there would be no changes to Butler.
 Downloads of objects from the Butler (including via DataLink) would still be done via temporary URLs signed by Butler itself.
-
-This initial version of the download service would also have metrics and quota support.
-Initial quota support would be by total bytes per unit time of the files for which it returns links.
-We will have to decide on a time period across which the quota limit applies.
-One minute probably isn't useful when returning pre-signed URLs; an hour or a day probably captures the desired limit more cleanly.
 
 Phase 2: Point Butler at the download service
 ---------------------------------------------
